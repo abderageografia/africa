@@ -146,8 +146,169 @@ for(const prefix of ['mainAnswer','westAnswer']){$(prefix+'Next').addEventListen
 function quizErrorCount(eligible=null){const stats=mapQuizStats[mapQuizMode];if(!stats)return 0;const ids=eligible?new Set(eligible.map(f=>f.id)):null;let total=0;for(const[id,n]of stats.errors)if(!ids||ids.has(id))total+=n;return total;}
 function updateMistakes(){const n=quizErrorCount();for(const prefix of ['main','west']){const scope=prefix==='west'?westIds():null,eligible=DATA.filter(f=>f.id!=='SAH'&&!ISLANDS.has(f.id)&&(!scope||scope.has(f.id)));$(prefix+'QuizMistakes').textContent='Fallos: '+n;const correct=eligible.filter(f=>mapQuizSolved.has(f.id)).length,total=eligible.length,percent=total?Math.round(correct/total*100):0;$(prefix+'QuizCorrectText').textContent='Acertados: '+correct+'/'+total;const meter=$(prefix+'QuizProgress');meter.max=total||1;meter.value=correct;meter.setAttribute('aria-valuetext',correct+' de '+total+' países acertados ('+percent+' %)');$(prefix+'QuizPercent').textContent=percent+' %';}}
 function clearQuizStats(scope=null){mapQuizOrders.clear();const stats=mapQuizStats[mapQuizMode];if(!stats)return;if(scope)for(const id of scope)stats.errors.delete(id);else stats.errors.clear();stats.celebrated.clear();updateMistakes();}
-function resultText(n){if(n===0)return{title:'¡Perfecto!',message:'¡Ni un solo fallo! Un 10 en el examen. ¡África dominada!'};if(n<=5)return{title:'¡Excelente!',message:'Muy pocos fallos. Tienes el mapa casi dominado.'};if(n<=15)return{title:'¡Buen trabajo!',message:'Mapa completado. Repasa los países que te han costado y ve a por la ronda perfecta.'};if(n<=30)return{title:'¡Sigue practicando!',message:'Has completado el mapa. Otra ronda te ayudará a afianzar los países y las capitales.'};return{title:'¡Reto completado!',message:'Lo has conseguido. Practica por regiones para reducir los fallos en la próxima ronda.'};}
-function finishMapQuiz(west,eligible){const stats=mapQuizStats[mapQuizMode],key=west?'west':'all';if(stats.celebrated.has(key))return;stats.celebrated.add(key);const n=quizErrorCount(eligible),result=resultText(n),perfect=n===0&&!west;const dialog=$('quizResultDialog');dialog.classList.toggle('perfectResult',perfect);$('quizResultMark').textContent=perfect?'10':n===0?'★':'✓';$('quizResultTitle').textContent=west?'¡África occidental completada!':result.title;$('quizResultMessage').textContent=west?(n===0?'¡Sin fallos! Ahora, a por el mapa completo.':result.message):result.message;$('quizResultCounts').textContent=eligible.length+' países · '+n+' '+(n===1?'fallo':'fallos');if(!dialog.open)dialog.showModal();if(perfect){launchConfetti();playFanfare();}}
+// Mensajes de final de ronda: selección aleatoria sin repetir el último del mismo tramo.
+const QUIZ_RESULT_MESSAGES = [
+  [0, '¡PERFECTO! ¡Un 10!', [
+    '¡CERO FALLOS! Has completado el mapa sin una sola equivocación. ¡Un 10 en el examen y una ovación para ti!',
+    '¡RONDA PERFECTA! Todos los países acertados, cero fallos. ¡Un 10 en el examen! ¡Menudo dominio del mapa!',
+    '¡PLENO ABSOLUTO! Ni un solo fallo en todo el mapa. ¡Un 10 en el examen! Esto merece confeti y aplausos.',
+    '¡IMPRESIONANTE! Has resuelto todo el mapa a la primera. Cero fallos y un 10 en el examen. ¡A celebrarlo!'
+  ]],
+  [1, '¡A un paso de la perfección!', [
+    '¡UN SOLO FALLO en todo el mapa! Una actuación espectacular. ¡El pleno lo tienes al alcance de la mano!',
+    '¡Brutal! Todo el mapa completado con una única equivocación. ¡Qué cerca está esa ronda perfecta!',
+    '¡Qué nivel! Solo un fallo entre tantos países. Repasa ese detalle y vuelve a por el pleno.',
+    '¡Casi impecable! Un único tropiezo en todo el recorrido. ¡Puedes estar muy orgulloso de esta ronda!'
+  ]],
+  [2, '¡Una ronda espectacular!', [
+    '¡SOLO DOS FALLOS! Has resuelto un mapa entero con una precisión enorme. ¡La ronda perfecta está cerquísima!',
+    '¡Impresionante! Dos equivocaciones y todo el mapa completado. ¡Tienes muchísimos países bien afianzados!',
+    '¡Menuda ronda! Solo dos fallos. Revisa esos dos puntos y lánzate a por el pleno.',
+    '¡Dos fallos en todo el mapa! Ese resultado merece un aplauso enorme. ¡Sigue así!'
+  ]],
+  [3, '¡Un resultado excelente!', [
+    '¡Solo tres fallos! Has completado el mapa con un dominio excelente. ¡El pleno ya se ve muy cerca!',
+    '¡Qué gran trabajo! Tres tropiezos en todo el mapa. ¡Estás a muy poquito de una ronda impecable!',
+    '¡Tres fallos y un mapa entero conquistado! Se nota que sabes orientarte. ¡A por esa ronda perfecta!',
+    '¡Rondaza! Solo tres equivocaciones. Un pequeño repaso y puedes dar el salto al pleno.'
+  ]],
+  [4, '¡Qué gran dominio del mapa!', [
+    '¡Solo cuatro fallos! Has mantenido una precisión fantástica hasta el final. ¡La próxima puede ser aún mejor!',
+    '¡Cuatro tropiezos en todo el mapa! Un resultado para celebrar. ¡Estás muy cerca de dominarlo por completo!',
+    '¡Excelente recorrido! Solo cuatro fallos. Repasa los países que se resistieron y ve a por el pleno.',
+    '¡Enhorabuena! Cuatro equivocaciones y todos los países completados. ¡Qué buen trabajo!'
+  ]],
+  [5, '¡Una ronda para celebrar!', [
+    '¡Cinco fallos en todo el mapa! Has hecho una ronda estupenda. ¡Con un repaso breve puedes acercarte muchísimo al pleno!',
+    '¡Muy, muy bien! Solo cinco tropiezos. Tienes una base excelente para ir a por una ronda perfecta.',
+    '¡Gran resultado! Cinco equivocaciones y el mapa completo. ¡Se nota todo lo que sabes!',
+    '¡Eso es dominar buena parte del mapa! Cinco fallos. Revisa los puntos difíciles y vuelve a por más.'
+  ]],
+  [6, '¡Muy buena ronda!', [
+    '¡Seis fallos y todo el mapa completado! Has hecho un gran trabajo. ¡Ahora puedes ir a por cinco o menos!',
+    '¡Qué bien! Con seis equivocaciones has llegado al final. Repasa los países más difíciles y mejora tu marca.',
+    '¡Buen dominio! Seis tropiezos en todo el recorrido. ¡Te quedan pocos detalles por afianzar!',
+    '¡Mapa completo con seis fallos! Un resultado muy bueno para seguir avanzando. ¡A por la siguiente!'
+  ]],
+  [7, '¡Vas muy bien!', [
+    '¡Siete fallos y reto completado! Has resuelto todos los países. ¡Tu próximo objetivo: bajar de siete!',
+    '¡Muy buen trabajo! Siete equivocaciones. Un repaso de las zonas que más cuestan puede marcar la diferencia.',
+    '¡Lo has conseguido con siete fallos! Tienes mucho camino ganado. ¡Anímate a mejorar esa marca!',
+    '¡Gran esfuerzo hasta el final! Siete tropiezos. ¡Ahora, a por una ronda todavía más precisa!'
+  ]],
+  [8, '¡Buen trabajo de principio a fin!', [
+    '¡Ocho fallos y mapa completo! Ya has encontrado todos los países. ¡Un repaso y a por una nueva marca!',
+    '¡Bien hecho! Ocho equivocaciones. Fíjate en las fronteras que te confundieron y vuelve a intentarlo.',
+    '¡Reto superado con ocho fallos! Sigue practicando: cada país afianzado cuenta.',
+    '¡Has llegado hasta el final! Ocho tropiezos. ¡La próxima meta puede ser siete o menos!'
+  ]],
+  [9, '¡Reto superado!', [
+    '¡Nueve fallos y todos los países completados! Buen trabajo. ¡A por una ronda con menos de nueve!',
+    '¡Bien hecho! Has cerrado el mapa con nueve equivocaciones. Revisa las zonas difíciles y vuelve con ganas.',
+    '¡Mapa completo! Nueve tropiezos. Ya sabes qué países necesitan un repaso. ¡Puedes mejorar tu marca!',
+    '¡Enhorabuena por terminar! Nueve fallos. Sigue afianzando el mapa, un país cada vez.'
+  ]],
+  [10, '¡Mapa completado! ¡Sigue así!', [
+    '¡Diez fallos y el mapa completo! Ahora tienes una meta clara: ¡bajar de diez en la próxima ronda!',
+    '¡Buen esfuerzo! Diez equivocaciones. Repasa los países que se resistieron y vuelve a por una cifra de un solo dígito.',
+    '¡Lo has terminado! Diez tropiezos. Cada nueva ronda es una oportunidad para afianzar lo aprendido.',
+    '¡Todos los países completados! Diez fallos. ¡Un repaso más y a por nueve o menos!'
+  ]],
+  [12, '¡Buen esfuerzo! ¡A por menos de once!', [
+    'Has completado todos los países. Repasa los que más se parecían y ve a por diez fallos o menos.',
+    '¡Mapa terminado! Fíjate en los países pequeños que te confundieron. ¡Tu siguiente objetivo está muy cerca!',
+    '¡Reto conseguido! Un breve repaso por regiones puede ayudarte a bajar de once fallos.'
+  ]],
+  [15, '¡Lo has conseguido! ¡Ahora, a afianzarlo!', [
+    '¡Todos los países completados! Revisa las zonas que más se resistieron y trata de bajar de trece fallos.',
+    '¡Buen esfuerzo hasta el final! Relaciona cada país difícil con sus vecinos y vuelve a por otra ronda.',
+    '¡Mapa superado! Elige tres países que te costaron, repásalos y anímate a mejorar tu marca.'
+  ]],
+  [18, '¡Mapa completo! ¡Sigue avanzando!', [
+    'Has resuelto el reto. Repasa la posición de los países por regiones y ve a por menos de dieciséis fallos.',
+    '¡Bien por llegar hasta el final! Busca un país que conozcas bien y úsalo para situar a sus vecinos.',
+    '¡Reto completado! Repite las zonas más difíciles con calma. ¡Cada país que afianzas es un paso más!'
+  ]],
+  [21, '¡Buen esfuerzo! ¡Vamos a por otra!', [
+    '¡Todos los países localizados! Un repaso de las fronteras más confusas puede ayudarte a bajar de diecinueve fallos.',
+    '¡Has terminado el mapa! Prueba a recordar la forma y los vecinos de cada país que te haya costado.',
+    '¡Reto superado! No hace falta dominarlo todo de golpe: elige una región y refuérzala primero.'
+  ]],
+  [24, '¡Reto terminado! ¡Toca consolidar!', [
+    'Has completado el mapa. Revisa África occidental con la ampliación y ve a por menos de veintidós fallos.',
+    '¡Lo has conseguido! Repasar primero los países costeros puede ayudarte a ordenar mejor el mapa.',
+    '¡Buen esfuerzo! Recorre el mapa de norte a sur y vuelve a probar con lo aprendido.'
+  ]],
+  [27, '¡No te has rendido! ¡Bien hecho!', [
+    '¡Mapa completo! Trabaja una región cada vez y ponte como próxima meta bajar de veinticinco fallos.',
+    'Has llegado al final del reto. Repasa los países interiores apoyándote en sus vecinos costeros.',
+    '¡Ronda terminada! Dedica un momento a los países que más te confundieron. ¡Puedes seguir mejorando!'
+  ]],
+  [30, '¡Completado! ¡Paso a paso se aprende!', [
+    'Has encontrado todos los países. Revisa las grandes regiones y trata de bajar de veintiocho fallos.',
+    '¡Buen esfuerzo! Practica primero las zonas que reconoces mejor y amplía desde ellas hacia los países vecinos.',
+    '¡Reto terminado! Con calma y por regiones, el mapa resulta mucho más fácil de recordar.'
+  ]],
+  [33, '¡Hasta el final! ¡Ahora, un pequeño repaso!', [
+    '¡Mapa completado! Repasa tres países difíciles y vuelve a por menos de treinta y un fallos.',
+    'Has terminado la ronda. Usa el modo Descubrir para relacionar nombres, formas y posiciones.'
+  ]],
+  [36, '¡Reto completado! ¡Una región cada vez!', [
+    'Has resuelto todo el mapa. Repasa una región con calma y trata de bajar de treinta y cuatro fallos.',
+    '¡Bien por perseverar! Elige una zona pequeña y repítela antes de volver al mapa completo.'
+  ]],
+  [39, '¡Mapa terminado! ¡Sigue construyendo tu mapa mental!', [
+    'Ya has localizado todos los países. Practica sus vecinos y ve a por menos de treinta y siete fallos.',
+    '¡Has llegado hasta el final! Usa las costas y los grandes países como referencias para situar los demás.'
+  ]],
+  [42, '¡Lo has completado! ¡Puedes seguir avanzando!', [
+    'Buen esfuerzo. Repasa primero el norte y el sur y ve a por menos de cuarenta fallos.',
+    '¡Reto terminado! Vuelve a las zonas más confusas y busca una referencia que te ayude a recordarlas.'
+  ]],
+  [45, '¡No te rindas! ¡El mapa se aprende practicando!', [
+    'Has llegado al final. Repasa las formas de los países y trata de bajar de cuarenta y tres fallos.',
+    '¡Mapa completo! Reconocer un nuevo país ya te da una referencia más para la siguiente ronda.'
+  ]],
+  [48, '¡Bien por terminar! ¡Vamos por partes!', [
+    'Practica las regiones por separado y vuelve a por menos de cuarenta y seis fallos. ¡Un paso cada vez!',
+    '¡Reto completado! Dedica un rato al modo Descubrir y relaciona cada país con dos de sus vecinos.'
+  ]],
+  [51, '¡Ronda completada! ¡Ahora, a reforzar las bases!', [
+    'Has terminado. Repasa primero los países más grandes y trata de bajar de cuarenta y nueve fallos.',
+    '¡Has perseverado hasta el final! Aprende unos pocos países por ronda y ve ampliando tu mapa mental.'
+  ]],
+  [54, '¡Mapa completo! ¡Aprender también requiere intentos!', [
+    'Repasa los países junto al Mediterráneo y avanza hacia el interior. ¡A por menos de cincuenta y dos fallos!',
+    '¡Reto terminado! Repite una zona pequeña hasta reconocerla con seguridad y después amplía el recorrido.'
+  ]],
+  [57, '¡Lo has terminado! ¡Seguimos paso a paso!', [
+    'Busca cinco países que te cueste recordar y repásalos. ¡Tu próxima meta: menos de cincuenta y cinco fallos!',
+    '¡Buen esfuerzo hasta el final! Conecta cada nombre con una forma y una posición antes de repetir.'
+  ]],
+  [60, '¡Reto completado! ¡Date tiempo para afianzarlo!', [
+    'Empieza por una región que te resulte familiar. ¡Después vuelve a por menos de cincuenta y ocho fallos!',
+    'Has completado todo el recorrido. Descansa un momento y repasa unos pocos países con calma.'
+  ]]
+];
+const lastQuizResultChoice = new Map();
+function resultText(n){
+  const row=QUIZ_RESULT_MESSAGES.find(([max])=>n<=max);
+  const start=61+Math.floor(Math.max(0,n-61)/3)*3;
+  const key=row?row[0]:start+2;
+  const title=row?row[1]:'¡Mapa completado! ¡Sigue intentándolo!';
+  const messages=row?row[2]:[
+    `¡Has llegado hasta el final! Con ${n} fallos, el próximo objetivo puede ser bajar de ${start}. Repasa una región cada vez.`,
+    `¡Reto terminado! Estás en el tramo de ${start} a ${start+2} fallos. Prueba el modo Descubrir y vuelve a por menos de ${start}.`,
+    `Has completado todos los países con ${n} fallos. Repasa cinco que te cuesten y vuelve a intentarlo con calma. ¡A por menos de ${start}!`
+  ];
+  const previous=lastQuizResultChoice.get(key);
+  const choices=messages.map((_,i)=>i).filter(i=>i!==previous);
+  const choice=choices[Math.floor(Math.random()*choices.length)];
+  lastQuizResultChoice.set(key,choice);
+  return {title,message:messages[choice]};
+}
+
+function finishMapQuiz(west,eligible){const stats=mapQuizStats[mapQuizMode],key=west?'west':'all';if(stats.celebrated.has(key))return;stats.celebrated.add(key);const n=quizErrorCount(eligible),result=resultText(n),perfect=n===0&&!west;const dialog=$('quizResultDialog');dialog.classList.toggle('perfectResult',perfect);$('quizResultMark').textContent=perfect?'10':n===0?'★':'✓';$('quizResultTitle').textContent=west?'África occidental · '+result.title:result.title;$('quizResultMessage').textContent=result.message;$('quizResultCounts').textContent=eligible.length+' países · '+n+' '+(n===1?'fallo':'fallos');if(!dialog.open)dialog.showModal();if(perfect){launchConfetti();playFanfare();}}
 let confettiFrame=0,fanfareAudio=null;
 function launchConfetti(){cancelAnimationFrame(confettiFrame);const canvas=$('quizConfetti'),ctx=canvas.getContext('2d');if(!ctx)return;const w=canvas.width=innerWidth,h=canvas.height=innerHeight,reduced=matchMedia('(prefers-reduced-motion:reduce)').matches;const colors=['#f9c438','#ef5573','#3868e8','#29b981','#a16ce5'];const pieces=Array.from({length:180},()=>({x:Math.random()*w,y:reduced?Math.random()*h:-Math.random()*h,v:100+Math.random()*150,angle:Math.random()*6.28,color:colors[Math.floor(Math.random()*colors.length)]}));const start=performance.now();let last=start;function frame(now){ctx.clearRect(0,0,w,h);const dt=Math.min((now-last)/1000,.04);last=now;for(const p of pieces){if(!reduced){p.y+=p.v*dt;p.x+=Math.sin(p.angle)*30*dt;p.angle+=dt*3;}ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.angle);ctx.fillStyle=p.color;ctx.fillRect(-4,-7,8,14);ctx.restore();}if(!reduced&&now-start<6000&&$('quizResultDialog').open)confettiFrame=requestAnimationFrame(frame);else if(!reduced)ctx.clearRect(0,0,w,h);}frame(start);}
 function playFanfare(){try{const Audio=window.AudioContext||window.webkitAudioContext;if(!Audio)return;if(fanfareAudio)fanfareAudio.close().catch(()=>{});const a=fanfareAudio=new Audio();a.resume().catch(()=>{});const notes=[[523.25,0,.16],[523.25,.2,.16],[523.25,.4,.16],[698.46,.65,.42],[659.25,1.15,.2],[698.46,1.4,.2],[783.99,1.65,.65],[1046.5,2.4,1.2],[659.25,2.4,1.2],[783.99,2.4,1.2]];for(const[freq,t,len]of notes){const o=a.createOscillator(),g=a.createGain();o.type='triangle';o.frequency.value=freq;g.gain.setValueAtTime(0,a.currentTime+t);g.gain.linearRampToValueAtTime(.09,a.currentTime+t+.025);g.gain.exponentialRampToValueAtTime(.001,a.currentTime+t+len);o.connect(g);g.connect(a.destination);o.start(a.currentTime+t);o.stop(a.currentTime+t+len+.04);}setTimeout(()=>{if(fanfareAudio===a){a.close().catch(()=>{});fanfareAudio=null;}},4000);}catch{}}
@@ -155,7 +316,7 @@ $('quizResultDialog').addEventListener('close',()=>{cancelAnimationFrame(confett
 
 function stopMapQuiz(){mapQuizMode=null;syncMapQuizLevel();mapQuizTarget=null;mapQuizDone=false;document.body.classList.remove('mapQuiz');for(const id of ['selectCountryMode','selectCapitalMode']){$(id).classList.remove('primary');$(id).setAttribute('aria-pressed','false');}for(const prefix of ['main','west'])$(prefix+'MapQuiz').hidden=true;$('listBtn').hidden=false;}
 function updateMapQuizPrompt(){const f=DATA.find(c=>c.id===mapQuizTarget);if(!f)return;const title=mapQuizMode==='country'?'Localiza: '+f.name:'Capital: '+f.capital.split(' · ')[0];const help=mapQuizMode==='country'?'Pulsa ese país en el mapa.':'Pulsa el país al que pertenece esta capital.';setPrompt(title,help);$('westInfo').textContent=title+' · '+help;}
-function nextMapQuiz(west=false){const scope=west?westIds():null;const eligible=DATA.filter(f=>f.id!=='SAH'&&!WRITING_ISLANDS.has(f.id)&&(!scope||scope.has(f.id)));let pool=eligible.filter(f=>!mapQuizSolved.has(f.id));if(!pool.length){finishMapQuiz(west,eligible);mapQuizComplete=true;mapQuizDone=true;selected=null;sync();setPrompt(west?'¡Ampliación completada!':'¡Mapa completado!','Has localizado todos los países de esta ronda.');$('westInfo').textContent='¡Ampliación completada!';for(const prefix of ['main','west']){$(prefix+'MapQuizFeedback').textContent=resultText(quizErrorCount(eligible)).message;$(prefix+'MapQuizFeedback').className='answerFeedback good';$(prefix+'MapQuizNext').textContent='Reiniciar';}return;}mapQuizComplete=false;const different=pool.filter(f=>f.id!==mapQuizTarget);if(different.length)pool=different;if(!pool.length)return;mapQuizTarget=pickMapQuizTarget(pool,west);mapQuizDone=false;selected=null;for(const prefix of ['main','west']){$(prefix+'MapQuizFeedback').textContent='Puedes pasar si no lo sabes.';$(prefix+'MapQuizFeedback').className='';$(prefix+'MapQuizNext').textContent='Pasar →';}for(const rs of refs.values())for(const r of rs)if(r.path)r.path.classList.remove('quizWrong');sync();updateMapQuizPrompt();}
+function nextMapQuiz(west=false){const scope=west?westIds():null;const eligible=DATA.filter(f=>f.id!=='SAH'&&!WRITING_ISLANDS.has(f.id)&&(!scope||scope.has(f.id)));let pool=eligible.filter(f=>!mapQuizSolved.has(f.id));if(!pool.length){finishMapQuiz(west,eligible);mapQuizComplete=true;mapQuizDone=true;selected=null;sync();setPrompt(west?'¡Ampliación completada!':'¡Mapa completado!','Has localizado todos los países de esta ronda.');$('westInfo').textContent='¡Ampliación completada!';for(const prefix of ['main','west']){$(prefix+'MapQuizFeedback').textContent=$('quizResultMessage').textContent;$(prefix+'MapQuizFeedback').className='answerFeedback good';$(prefix+'MapQuizNext').textContent='Reiniciar';}return;}mapQuizComplete=false;const different=pool.filter(f=>f.id!==mapQuizTarget);if(different.length)pool=different;if(!pool.length)return;mapQuizTarget=pickMapQuizTarget(pool,west);mapQuizDone=false;selected=null;for(const prefix of ['main','west']){$(prefix+'MapQuizFeedback').textContent='Puedes pasar si no lo sabes.';$(prefix+'MapQuizFeedback').className='';$(prefix+'MapQuizNext').textContent='Pasar →';}for(const rs of refs.values())for(const r of rs)if(r.path)r.path.classList.remove('quizWrong');sync();updateMapQuizPrompt();}
 function checkMapQuiz(id){if(!mapQuizMode||mapQuizDone)return;if(id==='SAH'||WRITING_ISLANDS.has(id))return;const correct=id===mapQuizTarget;const f=DATA.find(c=>c.id===id);if(correct){mapQuizDone=true;mapQuizSolved.add(id);selected=id;sync();softHaptic(7);}else{const stats=mapQuizStats[mapQuizMode];stats.errors.set(mapQuizTarget,(stats.errors.get(mapQuizTarget)||0)+1);updateMistakes();for(const r of refs.get(id)||[])if(r.path){r.path.classList.add('quizWrong');setTimeout(()=>r.path.classList.remove('quizWrong'),650);}softHaptic(5);}for(const prefix of ['main','west']){$(prefix+'MapQuizFeedback').textContent=correct?'¡Correcto! '+f.name+' · '+f.capital:'Ese país no es. Inténtalo otra vez o pulsa «Pasar».';$(prefix+'MapQuizFeedback').className='answerFeedback '+(correct?'good':'bad');$(prefix+'MapQuizNext').textContent=correct?'Siguiente →':'Pasar →';}if(correct){const west=$('westDialog').open,scope=west?westIds():null;const eligible=DATA.filter(f=>f.id!=='SAH'&&!WRITING_ISLANDS.has(f.id)&&(!scope||scope.has(f.id)));if(eligible.every(f=>mapQuizSolved.has(f.id)))nextMapQuiz(west);}}
 function setMapQuiz(mode){setWriting(false);mapQuizMode=mode;mapQuizSolved=mode==='country'?mapCountrySolved:mapCapitalSolved;mapQuizComplete=false;document.body.classList.add('mapQuiz');syncMapQuizLevel();$('readMode').classList.remove('primary');$('readMode').setAttribute('aria-pressed','false');const id=mode==='country'?'selectCountryMode':'selectCapitalMode';$(id).classList.add('primary');$(id).setAttribute('aria-pressed','true');$('showAll').hidden=true;$('listBtn').hidden=true;for(const prefix of ['main','west'])$(prefix+'MapQuiz').hidden=false;nextMapQuiz($('westDialog').open);}
 $('selectCountryMode').onclick=()=>setMapQuiz('country');$('selectCapitalMode').onclick=()=>setMapQuiz('capital');for(const prefix of ['main','west'])$(prefix+'MapQuizNext').onclick=()=>{const west=prefix==='west'||$('westDialog').open;if(mapQuizComplete){const scope=west?westIds():null;for(const f of DATA)if(!scope||scope.has(f.id))mapQuizSolved.delete(f.id);clearQuizStats(scope);}nextMapQuiz(west);};
@@ -190,3 +351,4 @@ function stopAnswerTyping(){document.body.classList.remove('answerTyping');if(ty
 for(const prefix of ['mainAnswer','westAnswer']){const input=$(prefix+'Input');input.addEventListener('focus',()=>startAnswerTyping(input));input.addEventListener('blur',()=>setTimeout(()=>{if(!document.activeElement||!['mainAnswerInput','westAnswerInput'].includes(document.activeElement.id))stopAnswerTyping();},100));}
 if(window.visualViewport){window.visualViewport.addEventListener('resize',keyboardViewport);window.visualViewport.addEventListener('scroll',keyboardViewport);}window.addEventListener('resize',keyboardViewport);
 </script></body></html>
+
