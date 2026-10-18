@@ -350,5 +350,53 @@ function startAnswerTyping(input){if(!writingMode||!window.matchMedia('(max-widt
 function stopAnswerTyping(){document.body.classList.remove('answerTyping');if(typingMap&&typingViewBox)typingMap.setAttribute('viewBox',typingViewBox);typingMap=null;typingViewBox=null;}
 for(const prefix of ['mainAnswer','westAnswer']){const input=$(prefix+'Input');input.addEventListener('focus',()=>startAnswerTyping(input));input.addEventListener('blur',()=>setTimeout(()=>{if(!document.activeElement||!['mainAnswerInput','westAnswerInput'].includes(document.activeElement.id))stopAnswerTyping();},100));}
 if(window.visualViewport){window.visualViewport.addEventListener('resize',keyboardViewport);window.visualViewport.addEventListener('scroll',keyboardViewport);}window.addEventListener('resize',keyboardViewport);
+</script><script>
+/* Automatically advance only after a newly accepted answer. */
+(()=>{
+  const delay=550;
+  let timer=null,generation=0;
+  function cancelAdvance(){if(timer!==null)clearTimeout(timer);timer=null;generation++;}
+  function scheduleAdvance(check,advance){
+    cancelAdvance();const token=generation;
+    timer=setTimeout(()=>{timer=null;if(token===generation&&check())advance();},delay);
+  }
+  const originalNextWritten=nextWritten;
+  nextWritten=function(...args){cancelAdvance();for(const p of ['mainAnswer','westAnswer'])$(p+'Next').textContent='Siguiente';return originalNextWritten.apply(this,args);};
+  const originalNextMapQuiz=nextMapQuiz;
+  nextMapQuiz=function(...args){cancelAdvance();return originalNextMapQuiz.apply(this,args);};
+  const originalSetWriting=setWriting;
+  setWriting=function(...args){cancelAdvance();return originalSetWriting.apply(this,args);};
+  const originalSetMapQuiz=setMapQuiz;
+  setMapQuiz=function(...args){cancelAdvance();return originalSetMapQuiz.apply(this,args);};
+  const originalDiscover=discover;
+  discover=function(id){
+    const mode=answerMode,wasWriting=writingMode,already=writtenSolved.has(id);
+    const result=originalDiscover.apply(this,arguments);
+    if(!wasWriting||already||!writtenSolved.has(id))return result;
+    const scope=$('westDialog').open?westIds():null;
+    const eligible=DATA.filter(f=>f.id!=='SAH'&&!WRITING_ISLANDS.has(f.id)&&(!scope||scope.has(f.id)));
+    if(eligible.length&&eligible.every(f=>writtenSolved.has(f.id))){
+      cancelAdvance();setPrompt('¡Ronda completada!','Has acertado todos los países de esta ronda.');
+      for(const p of ['mainAnswer','westAnswer'])$(p+'Next').textContent='Reiniciar';
+      return result;
+    }
+    scheduleAdvance(()=>writingMode&&answerMode===mode&&selected===id&&writtenSolved.has(id),()=>nextWritten($('westDialog').open));
+    return result;
+  };
+  const originalCheckMapQuiz=checkMapQuiz;
+  checkMapQuiz=function(id){
+    const mode=mapQuizMode,target=mapQuizTarget,already=mapQuizSolved.has(id);
+    const result=originalCheckMapQuiz.apply(this,arguments);
+    if(!mode||id!==target||already||!mapQuizSolved.has(id)||mapQuizComplete||$('quizResultDialog').open)return result;
+    scheduleAdvance(()=>mapQuizMode===mode&&mapQuizTarget===id&&mapQuizDone&&!mapQuizComplete&&!$('quizResultDialog').open,()=>nextMapQuiz($('westDialog').open));
+    return result;
+  };
+  // Manual skips, resets and mode changes must invalidate pending callbacks.
+  document.addEventListener('click',e=>{
+    if(e.target.closest?.('#reset,#westReset,[data-close],#mainAnswerNext,#westAnswerNext,#mainMapQuizNext,#westMapQuizNext,#readMode,#writeMode,#capitalMode,#selectCountryMode,#selectCapitalMode'))cancelAdvance();
+  },true);
+  window.addEventListener('pagehide',cancelAdvance);
+})();
+
 </script></body></html>
 
